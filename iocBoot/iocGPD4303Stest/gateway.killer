@@ -1,0 +1,34 @@
+
+# options:
+# home=</opt/GPD4303S/iocBoot/iocGPD4303Stest>
+# log file=<<terminal>>
+# access file=<NULL>
+# pvlist file=<NULL>
+# command file=<NULL>
+# putlog file=<NULL>
+# report file=<gateway.report>
+# debug level=0
+# dead timeout=120
+# connect timeout=1
+# disconnect timeout=7200
+# reconnect inhibit time=300
+# inactive timeout=7200
+# event mask=va
+# user id=0
+# group id=0
+# caching=enabled
+# archive monitor=disabled
+# 
+# environment set from command line:
+# 
+# use the following to execute commands in command file:
+#    kill -USR1 4986
+# use the following to get a PV summary report in the log:
+#    kill -USR2 4986
+# 
+
+ kill 4986 # to kill everything
+
+
+ # kill 4986 # to kill off this gateway
+

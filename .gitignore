@@ -30,3 +30,12 @@
 *.exe
 *.out
 *.app
+
+GPD4303StestApp/Db/O.linux-arm/
+GPD4303StestApp/src/O.Common/
+GPD4303StestApp/src/O.linux-arm/
+bin/
+configure/O.linux-arm/
+db/
+dbd/
+iocBoot/iocGPD4303Stest/envPaths
