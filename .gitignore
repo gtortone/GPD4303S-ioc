@@ -31,11 +31,11 @@
 *.out
 *.app
 
-GPD4303StestApp/Db/O.linux-arm/
-GPD4303StestApp/src/O.Common/
-GPD4303StestApp/src/O.linux-arm/
-bin/
-configure/O.linux-arm/
-db/
-dbd/
-iocBoot/iocGPD4303Stest/envPaths
+c/GPD4303StestApp/Db/O.linux-arm/
+c/GPD4303StestApp/src/O.Common/
+c/GPD4303StestApp/src/O.linux-arm/
+c/bin/
+c/configure/O.linux-arm/
+c/db/
+c/dbd/
+c/iocBoot/iocGPD4303Stest/envPaths
