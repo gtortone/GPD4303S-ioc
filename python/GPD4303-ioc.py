@@ -149,13 +149,17 @@ pvdb = {
 }
 
 class MonitorThread(threading.Thread):
-   def __init__(self, kwargs=None):
+   def __init__(self, port, kwargs=None):
       threading.Thread.__init__(self, args=(), kwargs=None) 
 
       self.name = "MonitorThread"
       self.daemon = True
       self.rm = pyvisa.ResourceManager()
-      self.psu = self.rm.open_resource('ASRL/dev/ttyUSB0::INSTR')
+      try:
+         self.psu = self.rm.open_resource(f'ASRL{port}::INSTR')
+      except Exception as e:
+         print(e)
+         exit(-1)
       self.psu.timeout = 5000
 
    def run(self):
@@ -203,34 +207,50 @@ if __name__ == '__main__':
    # get hostname
    hostname = socket.gethostname().split(".")[0] 
 
-   # read config file to setup and start backend threads
+   # default PVs prefix
+   prefix = "PS:"
 
+   # default psu port
+   port = "/dev/ttyUSB0"
+
+   threads = []
+
+   # read config file to setup and start threads
    config = {}
-   with open(f"{sys.path[0]}/config.yaml", "r") as stream:
-      try:
-         config = yaml.safe_load(stream)
-      except yaml.YAMLError as e:
-         print(e)
-         exit(-1)
+   try:
+      with open(f"{sys.path[0]}/config.yaml", "r") as stream:
+         try:
+            config = yaml.safe_load(stream)
+         except yaml.YAMLError as e:
+            print(e)
+            exit(-1)
+         else:
+            for section in config:
 
-   for backend in config:
+               if 'epics' in section:
+                  # resolve macro
+                  prefix = section['epics'].get('prefix', 'PS:')
+                  prefix = re.sub('\$hostname', hostname, prefix.lower()).upper()
 
-      if 'epics' in backend:
-         # resolve macro
-         prefix = backend['epics'].get('prefix', 'PS:')
-         prefix = re.sub('\$hostname', hostname, prefix.lower()).upper()
-         args = {}
-         args['prefix'] = prefix
+               if 'psu' in section:
+                  port = section['psu'].get('port', '/dev/ttyUSB0')
+   except (FileNotFoundError, PermissionError) as e:
+      print(f'WARNING: {e} - running with defaults')
+      pass
 
-         server = SimpleServer()
-         server.createPV(prefix, pvdb)
-         driver = myDriver()
+   server = SimpleServer()
+   server.createPV(prefix, pvdb)
+   driver = myDriver()
 
-         monitor = MonitorThread()
-         monitor.start()
+   threads.append(MonitorThread(port))
+
+   for t in threads:
+      t.start()
 
    # process CA transactions
    while True:
       server.process(0.1)
 
-   monitor.join()
+   for t in threads:
+      t.join()
+

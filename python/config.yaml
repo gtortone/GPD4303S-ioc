@@ -1,5 +1,8 @@
 ---
 
+- psu:
+    port: "/dev/ttyUSB0"
+
 - epics:
     # $HOSTNAME: machine hostname
     prefix: "$hostname:PS:"
