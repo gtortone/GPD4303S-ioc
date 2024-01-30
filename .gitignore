@@ -39,3 +39,5 @@ c/configure/O.linux-arm/
 c/db/
 c/dbd/
 c/iocBoot/iocGPD4303Stest/envPaths
+
+python/config.yaml
