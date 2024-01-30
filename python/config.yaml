@@ -9,6 +9,6 @@
     
 - http:
     enable: on
-    url: "https://lxfpga.na.infn.it:8186/write"
-    username: "monitor"
-    password: "fpga4all"
+    url: "https://telegraf:8186/write"
+    username: "myuser"
+    password: "mypass"
