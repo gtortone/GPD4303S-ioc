@@ -3,9 +3,12 @@
 import re
 import sys
 import yaml
+import time
 import pyvisa
 import socket
 import threading
+
+from epics import PV
 from pcaspy import SimpleServer, Driver
 
 # IOC scan period (in seconds)
@@ -182,6 +185,8 @@ class MonitorThread(threading.Thread):
 
             pvdb[k]['value'] = value
 
+      print(f'{threading.current_thread().name} exit')
+
 class myDriver(Driver):
    def __init__(self):
       super(myDriver, self).__init__()
@@ -201,6 +206,37 @@ class myDriver(Driver):
    def write(self, reason, value):
       # disable PV write (caput)
       return True
+
+class HttpThread(threading.Thread):
+   def __init__(self, kwargs=None):
+      threading.Thread.__init__(self, args=(), kwargs=None)
+         
+      self.name = "HttpThread"
+      self.hostname = kwargs['hostname']
+      self.url = kwargs['url']
+      self.username = kwargs.get('username', None)
+      self.password = kwargs.get('password', None)
+      self.pvprefix = kwargs['pvprefix']
+
+      self.pvs = []
+      for pvname in pvdb:
+         self.pvs.append(PV(f'{self.pvprefix}{pvname}'))
+
+      print(self.pvs)
+      
+      self.daemon = True
+   
+   def run(self):
+      print(f'{threading.current_thread().name}')
+      while True:
+         for pv in self.pvs:
+            print(pv)
+
+         time.sleep(1)          ##
+      print(f'{threading.current_thread().name} exit')
+
+   def get_influx_payload(self, pv, value):
+      None
 
 if __name__ == '__main__':
 
@@ -222,18 +258,31 @@ if __name__ == '__main__':
          try:
             config = yaml.safe_load(stream)
          except yaml.YAMLError as e:
-            print(e)
-            exit(-1)
+            print(e) exit(-1)
          else:
             for section in config:
+
+               if 'psu' in section:
+                  port = section['psu'].get('port', '/dev/ttyUSB0')
 
                if 'epics' in section:
                   # resolve macro
                   prefix = section['epics'].get('prefix', 'PS:')
                   prefix = re.sub('\$hostname', hostname, prefix.lower()).upper()
 
-               if 'psu' in section:
-                  port = section['psu'].get('port', '/dev/ttyUSB0')
+               if 'http' in section:
+                  if section['http'].get('enable', False):
+                     args = {}
+                     args['hostname'] = hostname
+                     args['url'] = section['http'].get('url', None)
+                     if args['url'] is None:
+                        print("ERROR: HTTP section enabled but 'url' parameter is not provided")
+                        exit(-1)
+                     args['username'] = section['http'].get('username', None)
+                     args['password'] = section['http'].get('password', None)
+                     args['pvprefix'] = prefix
+                     threads.append(HttpThread(kwargs=args))
+
    except (FileNotFoundError, PermissionError) as e:
       print(f'WARNING: {e} - running with defaults')
       pass
@@ -249,8 +298,10 @@ if __name__ == '__main__':
 
    # process CA transactions
    while True:
-      server.process(0.1)
-
-   for t in threads:
-      t.join()
+      try:
+         server.process(0.1)
+      except KeyboardInterrupt:
+         print("Ctrl+C pressed...")
+         del(server)
+         break;
 
