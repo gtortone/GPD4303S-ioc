@@ -1,0 +1,11 @@
+---
+
+- epics:
+    # $HOSTNAME: machine hostname
+    prefix: "$hostname:PS:"
+    
+- http:
+    enable: on
+    url: "https://lxfpga.na.infn.it:8186/write"
+    username: "monitor"
+    password: "fpga4all"

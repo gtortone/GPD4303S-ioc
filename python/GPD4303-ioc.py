@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import re
+import sys
+import yaml
 import pyvisa
-import argparse
+import socket
 import threading
 from pcaspy import SimpleServer, Driver
 
@@ -197,16 +199,35 @@ class myDriver(Driver):
       return True
 
 if __name__ == '__main__':
-   parser = argparse.ArgumentParser()
-   parser.add_argument('-p', '--prefix', action='store', help='EPICS PV prefix (default: \'PS:\')', default="PS:")
-   args = parser.parse_args()
 
-   server = SimpleServer()
-   server.createPV(args.prefix, pvdb)
-   driver = myDriver()
+   # get hostname
+   hostname = socket.gethostname().split(".")[0] 
 
-   monitor = MonitorThread()
-   monitor.start()
+   # read config file to setup and start backend threads
+
+   config = {}
+   with open(f"{sys.path[0]}/config.yaml", "r") as stream:
+      try:
+         config = yaml.safe_load(stream)
+      except yaml.YAMLError as e:
+         print(e)
+         exit(-1)
+
+   for backend in config:
+
+      if 'epics' in backend:
+         # resolve macro
+         prefix = backend['epics'].get('prefix', 'PS:')
+         prefix = re.sub('\$hostname', hostname, prefix.lower()).upper()
+         args = {}
+         args['prefix'] = prefix
+
+         server = SimpleServer()
+         server.createPV(prefix, pvdb)
+         driver = myDriver()
+
+         monitor = MonitorThread()
+         monitor.start()
 
    # process CA transactions
    while True:
