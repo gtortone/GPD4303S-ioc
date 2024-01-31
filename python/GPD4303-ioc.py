@@ -6,10 +6,13 @@ import yaml
 import time
 import pyvisa
 import socket
+import requests
 import threading
 
-from epics import PV
 from pcaspy import SimpleServer, Driver
+from epics import PV
+
+requests.packages.urllib3.disable_warnings()
 
 # IOC scan period (in seconds)
 freq = 1
@@ -19,7 +22,7 @@ pvdb = {
       'type': 'string',
       'scan' : 10,
       'cmd': '*IDN?',
-      'value': ''
+      'value': '',
    },
    'CH1:VOLTAGE': {
       'prec' : 3,
@@ -160,7 +163,7 @@ class MonitorThread(threading.Thread):
       self.rm = pyvisa.ResourceManager()
       try:
          self.psu = self.rm.open_resource(f'ASRL{port}::INSTR')
-      except Exception as e:
+      except pyvisa.VisaIOError as e:
          print(e)
          exit(-1)
       self.psu.timeout = 5000
@@ -172,18 +175,23 @@ class MonitorThread(threading.Thread):
          for k,v in pvdb.items():
             try:
                value = self.psu.query(pvdb[k]['cmd'])
-            except:
-               print(f'ERROR during query: {pvdb[k]["cmd"]}')
+            except OSError:
+               # process terminate
+               break
+            except pyvisa.VisaIOError as e:
+               print(f'ERROR during query: {pvdb[k]["cmd"]} - {e}')
                continue
             
             if k != 'IDN':
                try:
                   value = float(re.split("[A-Z]", value)[0])
-               except:
-                  print(f'ERROR during conversion of {value}')
+               except Exception as e:
+                  print(f'ERROR during conversion of {value} = {e}')
                   continue
 
-            pvdb[k]['value'] = value
+            # prevent read not ready PV (at startup)
+            if 'value' in pvdb[k]:
+               pvdb[k]['value'] = value
 
       print(f'{threading.current_thread().name} exit')
 
@@ -217,27 +225,63 @@ class HttpThread(threading.Thread):
       self.username = kwargs.get('username', None)
       self.password = kwargs.get('password', None)
       self.pvprefix = kwargs['pvprefix']
-
+      self.payloads = []
       self.pvs = []
-      for pvname in pvdb:
-         self.pvs.append(PV(f'{self.pvprefix}{pvname}'))
-
-      print(self.pvs)
-      
+      self.mutex = threading.Lock()
       self.daemon = True
    
    def run(self):
       print(f'{threading.current_thread().name}')
-      while True:
-         for pv in self.pvs:
-            print(pv)
 
-         time.sleep(1)          ##
+      # wait for PV valid values
+      time.sleep(2)
+
+      for ch in range(1,5):
+         p = PV(f'{self.pvprefix}CH{ch}:VOLTAGE')
+         p.add_callback(self.get_influx_payload)
+         self.pvs.append(p)
+
+         p = PV(f'{self.pvprefix}CH{ch}:CURRENT')
+         p.add_callback(self.get_influx_payload)
+         self.pvs.append(p)
+
+         p = PV(f'{self.pvprefix}CH{ch}:ISET')
+         p.add_callback(self.get_influx_payload)
+         self.pvs.append(p)
+
+         p = PV(f'{self.pvprefix}CH{ch}:VSET')
+         p.add_callback(self.get_influx_payload)
+         self.pvs.append(p)
+
+      while True:
+         if len(self.payloads) >= 100:
+            with self.mutex:
+               try:
+                  res = requests.post(self.url, auth=(self.username, self.password), data='\n'.join(self.payloads[0:100]), verify=False)
+               except Exception as e:
+                  print(e)
+               else:
+                  if res.ok == True and res.status_code != 400:
+                     del(self.payloads[0:100])
+                  else:
+                     print(f'HTTP error: {res.text}')
+   
+         # relax CPU
+         time.sleep(2)
+
       print(f'{threading.current_thread().name} exit')
 
-   def get_influx_payload(self, pv, value):
-      None
+   def get_influx_payload(self, pvname=None, value=None, char_value=None, **kw):
 
+      channel = re.findall(r'\d+',pvname.split(':')[2])[0]
+      metric = pvname.split(':')[3].lower()
+      timestamp = int(kw['timestamp'] * 1E9)
+
+      payload = f'psu,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
+
+      with self.mutex:
+         self.payloads.append(payload)
+      
 if __name__ == '__main__':
 
    # get hostname
@@ -258,7 +302,8 @@ if __name__ == '__main__':
          try:
             config = yaml.safe_load(stream)
          except yaml.YAMLError as e:
-            print(e) exit(-1)
+            print(e) 
+            exit(-1)
          else:
             for section in config:
 
@@ -304,4 +349,3 @@ if __name__ == '__main__':
          print("Ctrl+C pressed...")
          del(server)
          break;
-
