@@ -274,7 +274,7 @@ class HttpThread(threading.Thread):
 
    def get_influx_payload(self, pvname=None, value=None, char_value=None, **kw):
 
-      channel = re.findall(r'\d+',pvname.split(':')[2])[0]
+      channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
       metric = pvname.split(':')[3].lower()
       timestamp = int(kw['timestamp'] * 1E9)
 
