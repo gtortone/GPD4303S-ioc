@@ -236,22 +236,14 @@ class HttpThread(threading.Thread):
       # wait for PV valid values
       time.sleep(2)
 
-      for ch in range(1,5):
-         p = PV(f'{self.pvprefix}CH{ch}:VOLTAGE')
+      for k,v in pvdb.items():
+         if k == 'IDN':
+            continue
+         p = PV(f'{self.pvprefix}{k}')
          p.add_callback(self.get_influx_payload)
          self.pvs.append(p)
 
-         p = PV(f'{self.pvprefix}CH{ch}:CURRENT')
-         p.add_callback(self.get_influx_payload)
-         self.pvs.append(p)
-
-         p = PV(f'{self.pvprefix}CH{ch}:ISET')
-         p.add_callback(self.get_influx_payload)
-         self.pvs.append(p)
-
-         p = PV(f'{self.pvprefix}CH{ch}:VSET')
-         p.add_callback(self.get_influx_payload)
-         self.pvs.append(p)
+      httperror = False
 
       while True:
          if len(self.payloads) >= 100:
@@ -259,16 +251,25 @@ class HttpThread(threading.Thread):
                try:
                   res = requests.post(self.url, auth=(self.username, self.password), data='\n'.join(self.payloads[0:100]), verify=False)
                except Exception as e:
-                  print(e)
+                  if httperror == False:
+                     print(f'{time.ctime()}: {e}')
+                     httperror = True
                else:
+                  if httperror == True:
+                     print(f'{time.ctime()}: HTTP connection recovered')
+                     httperror = False
                   if res.ok == True and res.status_code != 400:
                      del(self.payloads[0:100])
                   else:
                      print(f'HTTP error: {res.text}')
-   
-         # relax CPU
-         time.sleep(2)
 
+            if len(self.payloads) >= 100:
+               # there are payloads waiting to be sent
+               time.sleep(0.1)
+            else:
+               # relax CPU
+               time.sleep(2)
+   
       print(f'{threading.current_thread().name} exit')
 
    def get_influx_payload(self, pvname=None, value=None, char_value=None, **kw):
