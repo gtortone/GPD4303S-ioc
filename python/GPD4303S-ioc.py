@@ -181,6 +181,8 @@ class myDriver(Driver):
                value = float(re.split("[A-Z]", s)[0])
             except Exception as e:
                print(f'ERROR during conversion of {s} = {e}')
+         elif reason == 'IDN':
+            value = s.rstrip()
          elif reason == 'OUTSTATUS':
             value = int(s[5])
          elif reason == 'OUT':
