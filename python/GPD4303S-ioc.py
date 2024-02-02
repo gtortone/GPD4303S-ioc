@@ -20,10 +20,15 @@ freq = 1
 pvdb = {
    'IDN' : {
       'type': 'string',
-      'scan' : 10,
       'cmd': '*IDN?',
       'value': '',
    },
+   #'OUTSTATUS' : {
+   #   'type': 'int',
+   #   'scan': 10,
+   #   'cmd': 'STATUS?',
+   #   'value': 0
+   #},
    'CH1:VOLTAGE': {
       'prec' : 3,
       'mdel': -1,
@@ -35,7 +40,6 @@ pvdb = {
    'CH1:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'VSET1?',
       'unit': 'V',
       'value': 0,
@@ -51,9 +55,8 @@ pvdb = {
    'CH1:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'ISET1?',
-      'unit': 'V',
+      'unit': 'A',
       'value': 0,
    },
    'CH2:VOLTAGE': {
@@ -67,7 +70,6 @@ pvdb = {
    'CH2:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'VSET2?',
       'unit': 'V',
       'value': 0,
@@ -83,9 +85,8 @@ pvdb = {
    'CH2:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'ISET2?',
-      'unit': 'V',
+      'unit': 'A',
       'value': 0,
    },
    'CH3:VOLTAGE': {
@@ -99,7 +100,6 @@ pvdb = {
    'CH3:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'VSET3?',
       'unit': 'V',
       'value': 0,
@@ -115,9 +115,8 @@ pvdb = {
    'CH3:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'ISET3?',
-      'unit': 'V',
+      'unit': 'A',
       'value': 0,
    },
    'CH4:VOLTAGE': {
@@ -131,7 +130,6 @@ pvdb = {
    'CH4:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'VSET4?',
       'unit': 'V',
       'value': 0,
@@ -147,9 +145,8 @@ pvdb = {
    'CH4:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'scan' : freq,
       'cmd': 'ISET4?',
-      'unit': 'V',
+      'unit': 'A',
       'value': 0,
    },
 }
@@ -182,16 +179,15 @@ class MonitorThread(threading.Thread):
                print(f'ERROR during query: {pvdb[k]["cmd"]} - {e}')
                continue
             
-            if k != 'IDN':
+            if k.find('CH') != -1:
+               # channel metric
                try:
                   value = float(re.split("[A-Z]", value)[0])
                except Exception as e:
                   print(f'ERROR during conversion of {value} = {e}')
                   continue
-
-            # prevent read not ready PV (at startup)
-            if 'value' in pvdb[k]:
-               pvdb[k]['value'] = value
+            
+            pvdb[k]['value'] = value
 
       print(f'{threading.current_thread().name} exit')
 
@@ -235,9 +231,10 @@ class HttpThread(threading.Thread):
 
       # wait for PV valid values
       time.sleep(2)
-
+      
+      ignore = ['IDN', 'OUTSTATUS', 'OUT']
       for k,v in pvdb.items():
-         if k == 'IDN':
+         if k in ignore:
             continue
          p = PV(f'{self.pvprefix}{k}')
          p.add_callback(self.get_influx_payload)
@@ -274,11 +271,12 @@ class HttpThread(threading.Thread):
 
    def get_influx_payload(self, pvname=None, value=None, char_value=None, **kw):
 
-      channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
-      metric = pvname.split(':')[3].lower()
       timestamp = int(kw['timestamp'] * 1E9)
+      metric = pvname.split(':')[-1].lower()
+      channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
 
       payload = f'psu,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
+      print(payload)
 
       with self.mutex:
          self.payloads.append(payload)
