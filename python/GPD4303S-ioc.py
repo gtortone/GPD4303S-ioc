@@ -23,12 +23,16 @@ pvdb = {
       'cmd': '*IDN?',
       'value': '',
    },
-   #'OUTSTATUS' : {
-   #   'type': 'int',
-   #   'scan': 10,
-   #   'cmd': 'STATUS?',
-   #   'value': 0
-   #},
+   'OUTSTATUS' : {
+      'type': 'int',
+      'scan': 10,
+      'cmd': 'STATUS?',
+      'value': 0
+   },
+   'OUT' : {
+      'type': 'int',
+      'cmd': 'OUT',
+   },
    'CH1:VOLTAGE': {
       'prec' : 3,
       'mdel': -1,
@@ -151,64 +155,56 @@ pvdb = {
    },
 }
 
-class MonitorThread(threading.Thread):
-   def __init__(self, port, kwargs=None):
-      threading.Thread.__init__(self, args=(), kwargs=None) 
-
-      self.name = "MonitorThread"
-      self.daemon = True
-      self.rm = pyvisa.ResourceManager()
-      try:
-         self.psu = self.rm.open_resource(f'ASRL{port}::INSTR')
-      except pyvisa.VisaIOError as e:
-         print(e)
-         exit(-1)
-      self.psu.timeout = 5000
-
-   def run(self):
-      print(f'{threading.current_thread().name}')
-
-      while True:
-         for k,v in pvdb.items():
-            try:
-               value = self.psu.query(pvdb[k]['cmd'])
-            except OSError:
-               # process terminate
-               break
-            except pyvisa.VisaIOError as e:
-               print(f'ERROR during query: {pvdb[k]["cmd"]} - {e}')
-               continue
-            
-            if k.find('CH') != -1:
-               # channel metric
-               try:
-                  value = float(re.split("[A-Z]", value)[0])
-               except Exception as e:
-                  print(f'ERROR during conversion of {value} = {e}')
-                  continue
-            
-            pvdb[k]['value'] = value
-
-      print(f'{threading.current_thread().name} exit')
-
 class myDriver(Driver):
-   def __init__(self):
+   def __init__(self, port):
       super(myDriver, self).__init__()
 
       self.rm = pyvisa.ResourceManager()
-      self.psu = self.rm.open_resource('ASRL/dev/ttyUSB0::INSTR')
+      self.psu = self.rm.open_resource(f'ASRL{port}::INSTR')
       self.psu.timeout = 5000
 
+      self.mutex = threading.Lock()
+
    def read(self, reason):
+      value = None
       if reason in pvdb:
-         value = pvdb[reason]['value']
+         try:
+            with self.mutex:
+               s = self.psu.query(pvdb[reason]['cmd'])
+            #print(reason, s)
+         except pyvisa.VisaIOError as e:
+            print(f'ERROR during query: {pvdb[reason]["cmd"]} - {e}')
+         
+         if reason.find('CH') != -1:
+            # channel metric
+            try:
+               value = float(re.split("[A-Z]", s)[0])
+            except Exception as e:
+               print(f'ERROR during conversion of {s} = {e}')
+         elif reason == 'OUTSTATUS':
+            value = int(s[5])
+         elif reason == 'OUT':
+            value = self.getParam(reason)
+          
+         pvdb[reason]['value'] = value
       else:
          value = self.getParam(reason)
    
       return value
 
    def write(self, reason, value):
-      # disable PV write (caput)
+      if reason == 'OUT':
+         if value != 0 and value != 1:
+            return False
+         try:
+            with self.mutex:
+               cmd = pvdb[reason]['cmd'] + str(value)
+               s = self.psu.write(cmd)
+         except pyvisa.VisaIOError as e:
+            print(f'ERROR during write: {cmd} - {e}')
+
+         self.setParam(reason, value)
+            
       return True
 
 class HttpThread(threading.Thread):
@@ -276,7 +272,7 @@ class HttpThread(threading.Thread):
       channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
 
       payload = f'psu,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
-      print(payload)
+      #print(payload)
 
       with self.mutex:
          self.payloads.append(payload)
@@ -333,9 +329,7 @@ if __name__ == '__main__':
 
    server = SimpleServer()
    server.createPV(prefix, pvdb)
-   driver = myDriver()
-
-   threads.append(MonitorThread(port))
+   driver = myDriver(port)
 
    for t in threads:
       t.start()
