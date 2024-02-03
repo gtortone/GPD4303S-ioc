@@ -233,6 +233,10 @@ class HttpThread(threading.Thread):
       self.pvs = []
       self.mutex = threading.Lock()
       self.daemon = True
+
+      # max memory for cached data 
+      self.maxmem = 100000000   # 100 MBytes
+      self.lowmem = False
    
    def run(self):
       print(f'{threading.current_thread().name}')
@@ -289,9 +293,17 @@ class HttpThread(threading.Thread):
       payload = f'psu,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
       #print(payload)
 
-      with self.mutex:
-         self.payloads.append(payload)
-      
+      if sys.getsizeof(self.payloads) < self.maxmem:
+         if self.lowmem == True:
+            print(f'INFO: data collection restored')
+            self.lowmem = False
+         with self.mutex:
+            self.payloads.append(payload)
+      else:
+         if self.lowmem == False:
+            print(f'WARNING: data collection paused due to max caching size reached ({self.maxmem} bytes)')
+            self.lowmem = True
+
 if __name__ == '__main__':
 
    # get hostname
