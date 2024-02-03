@@ -4,7 +4,7 @@ import re
 import sys
 import yaml
 import time
-import pyvisa
+import serial
 import socket
 import requests
 import threading
@@ -20,31 +20,32 @@ freq = 1
 pvdb = {
    'IDN' : {
       'type': 'string',
-      'cmd': '*IDN?',
+      'cmd': b'*IDN?\n',
       'value': '',
    },
    'OUTSTATUS' : {
       'type': 'int',
-      'scan': 10,
-      'cmd': 'STATUS?',
-      'value': 0
+      'mdel': -1,
+      'scan': freq,
+      'cmd': b'STATUS?\n',
+      'value': 0,
    },
    'OUT' : {
       'type': 'int',
-      'cmd': 'OUT',
+      'cmd': b'OUT',
    },
    'CH1:VOLTAGE': {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'VOUT1?',
+      'cmd': b'VOUT1?\n',
       'unit': 'V',
       'value': 0,
    },
    'CH1:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'VSET1?',
+      'cmd': b'VSET1?\n',
       'unit': 'V',
       'value': 0,
    },
@@ -52,14 +53,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'IOUT1?',
+      'cmd': b'IOUT1?\n',
       'unit': 'A',
       'value': 0,
    },
    'CH1:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'ISET1?',
+      'cmd': b'ISET1?\n',
       'unit': 'A',
       'value': 0,
    },
@@ -67,14 +68,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'VOUT2?',
+      'cmd': b'VOUT2?\n',
       'unit': 'V',
       'value': 0,
    },
    'CH2:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'VSET2?',
+      'cmd': b'VSET2?\n',
       'unit': 'V',
       'value': 0,
    },
@@ -82,14 +83,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'IOUT2?',
+      'cmd': b'IOUT2?\n',
       'unit': 'A',
       'value': 0,
    },
    'CH2:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'ISET2?',
+      'cmd': b'ISET2?\n',
       'unit': 'A',
       'value': 0,
    },
@@ -97,14 +98,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'VOUT3?',
+      'cmd': b'VOUT3?\n',
       'unit': 'V',
       'value': 0,
    },
    'CH3:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'VSET3?',
+      'cmd': b'VSET3?\n',
       'unit': 'V',
       'value': 0,
    },
@@ -112,14 +113,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'IOUT3?',
+      'cmd': b'IOUT3?\n',
       'unit': 'A',
       'value': 0,
    },
    'CH3:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'ISET3?',
+      'cmd': b'ISET3?\n',
       'unit': 'A',
       'value': 0,
    },
@@ -127,14 +128,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'VOUT4?',
+      'cmd': b'VOUT4?\n',
       'unit': 'V',
       'value': 0,
    },
    'CH4:VSET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'VSET4?',
+      'cmd': b'VSET4?\n',
       'unit': 'V',
       'value': 0,
    },
@@ -142,14 +143,14 @@ pvdb = {
       'prec' : 3,
       'mdel': -1,
       'scan' : freq,
-      'cmd': 'IOUT4?',
+      'cmd': b'IOUT4?\n',
       'unit': 'A',
       'value': 0,
    },
    'CH4:ISET': {
       'prec' : 3,
       'mdel': -1,
-      'cmd': 'ISET4?',
+      'cmd': b'ISET4?\n',
       'unit': 'A',
       'value': 0,
    },
@@ -159,36 +160,44 @@ class myDriver(Driver):
    def __init__(self, port):
       super(myDriver, self).__init__()
 
-      self.rm = pyvisa.ResourceManager()
-      self.psu = self.rm.open_resource(f'ASRL{port}::INSTR')
-      self.psu.timeout = 5000
+      self.ser = serial.Serial(port)
+      self.ser.timeout = 2 
+
+      # set baudrate to 115200 bps
+      self.ser.write(b'BAUD0\n')
+      self.ser.baudrate = 115200
+
+      # flush buffers
+      self.ser.read_until()
 
       self.mutex = threading.Lock()
 
    def read(self, reason):
-      value = None
+      if reason == 'OUT':
+         return self.getParam(reason)
+
       if reason in pvdb:
          try:
             with self.mutex:
-               s = self.psu.query(pvdb[reason]['cmd'])
-            #print(reason, s)
-         except pyvisa.VisaIOError as e:
+               self.ser.write(pvdb[reason]['cmd'])
+               s = self.ser.read_until().decode('utf-8')
+               #print(reason, s)
+         except Exception as e:
             print(f'ERROR during query: {pvdb[reason]["cmd"]} - {e}')
-         
-         if reason.find('CH') != -1:
-            # channel metric
-            try:
-               value = float(re.split("[A-Z]", s)[0])
-            except Exception as e:
-               print(f'ERROR during conversion of {s} = {e}')
-         elif reason == 'IDN':
-            value = s.rstrip()
-         elif reason == 'OUTSTATUS':
-            value = int(s[5])
-         elif reason == 'OUT':
-            value = self.getParam(reason)
-          
-         pvdb[reason]['value'] = value
+         else:
+            if reason.find('CH') != -1:
+               # channel metric
+               try:
+                  value = float(re.split("[A-Z]", s)[0])
+               except Exception as e:
+                  print(f'ERROR during conversion of {s} = {e} {reason}')
+            elif reason == 'IDN':
+               value = s.rstrip()
+            elif reason == 'OUTSTATUS':
+               value = int(s[5])
+            
+            pvdb[reason]['value'] = value
+            #print(reason, value, len(s))
       else:
          value = self.getParam(reason)
    
@@ -200,9 +209,9 @@ class myDriver(Driver):
             return False
          try:
             with self.mutex:
-               cmd = pvdb[reason]['cmd'] + str(value)
-               s = self.psu.write(cmd)
-         except pyvisa.VisaIOError as e:
+               cmd = pvdb[reason]['cmd'] + str(value).encode('utf-8') + b'\n'
+               s = self.ser.write(cmd)
+         except Exception as e:
             print(f'ERROR during write: {cmd} - {e}')
 
          self.setParam(reason, value)
@@ -216,6 +225,7 @@ class HttpThread(threading.Thread):
       self.name = "HttpThread"
       self.hostname = kwargs['hostname']
       self.url = kwargs['url']
+      self.session = requests.Session()
       self.username = kwargs.get('username', None)
       self.password = kwargs.get('password', None)
       self.pvprefix = kwargs['pvprefix']
@@ -240,11 +250,14 @@ class HttpThread(threading.Thread):
 
       httperror = False
 
+      self.session.auth = (self.username, self.password)
+      self.session.verify = False
+
       while True:
          if len(self.payloads) >= 100:
             with self.mutex:
                try:
-                  res = requests.post(self.url, auth=(self.username, self.password), data='\n'.join(self.payloads[0:100]), verify=False)
+                  res = self.session.post(self.url, data='\n'.join(self.payloads[0:100]))
                except Exception as e:
                   if httperror == False:
                      print(f'{time.ctime()}: {e}')
@@ -258,12 +271,12 @@ class HttpThread(threading.Thread):
                   else:
                      print(f'HTTP error: {res.text}')
 
-            if len(self.payloads) >= 100:
-               # there are payloads waiting to be sent
-               time.sleep(0.1)
-            else:
-               # relax CPU
-               time.sleep(2)
+         if len(self.payloads) >= 100:
+            # there are payloads waiting to be sent
+            time.sleep(1)
+         else:
+            # relax CPU
+            time.sleep(2)
    
       print(f'{threading.current_thread().name} exit')
 
