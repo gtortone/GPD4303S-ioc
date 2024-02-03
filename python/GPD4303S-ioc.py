@@ -157,15 +157,20 @@ pvdb = {
 }
 
 class myDriver(Driver):
-   def __init__(self, port):
+   def __init__(self, port, baudrate):
       super(myDriver, self).__init__()
 
       self.ser = serial.Serial(port)
       self.ser.timeout = 2 
 
-      # set baudrate to 115200 bps
-      self.ser.write(b'BAUD0\n')
-      self.ser.baudrate = 115200
+      if baudrate == 115200:
+         self.ser.write(b'BAUD0\n')
+      elif baudrate == 57600:
+         self.ser.write(b'BAUD1\n')
+      elif baudrate == 9600:
+         self.ser.write(b'BAUD2\n')
+
+      self.ser.baudrate = baudrate
 
       # flush buffers
       self.ser.read_until()
@@ -312,8 +317,9 @@ if __name__ == '__main__':
    # default PVs prefix
    prefix = "PS:"
 
-   # default psu port
+   # default psu port and baudrate
    port = "/dev/ttyUSB0"
+   baudrate = 9600
 
    threads = []
 
@@ -331,6 +337,10 @@ if __name__ == '__main__':
 
                if 'psu' in section:
                   port = section['psu'].get('port', '/dev/ttyUSB0')
+                  baudrate = section['psu'].get('baudrate', 9600)
+                  if baudrate not in [ 115200, 57600, 9600 ]:
+                     print(f'WARNING: baudrate {baudrate} not supported - fallback to 9600 bps')
+                     baudrate = 9600 
 
                if 'epics' in section:
                   # resolve macro
@@ -356,7 +366,7 @@ if __name__ == '__main__':
 
    server = SimpleServer()
    server.createPV(prefix, pvdb)
-   driver = myDriver(port)
+   driver = myDriver(port, baudrate)
 
    for t in threads:
       t.start()
