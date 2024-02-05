@@ -249,7 +249,7 @@ class HttpThread(threading.Thread):
       # wait for PV valid values
       time.sleep(2)
       
-      ignore = ['IDN', 'OUTSTATUS', 'OUT']
+      ignore = ['IDN', 'OUT']
       for k,v in pvdb.items():
          if k in ignore:
             continue
@@ -293,10 +293,16 @@ class HttpThread(threading.Thread):
 
       timestamp = int(kw['timestamp'] * 1E9)
       metric = pvname.split(':')[-1].lower()
-      channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
 
-      payload = f'psu,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
-      #print(payload)
+      if pvname.find('CH') != -1:
+         # channel measurement
+         channel = re.findall(r'\d+',pvname.split(':')[-2])[0]
+         payload = f'psu_channel,host={self.hostname},channel={channel},metric={metric} value={value} {timestamp}'
+      else:
+         # global measurement
+         payload = f'psu_global,host={self.hostname},metric={metric} value={value} {timestamp}'
+
+      print(pvname, payload)
 
       if sys.getsizeof(self.payloads) < self.maxmem:
          if self.lowmem == True:
